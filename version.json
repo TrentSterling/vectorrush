@@ -1,0 +1,9 @@
+{
+  "title": "Vector Rush",
+  "version": "0.6.0",
+  "description": "Dash, jump and trade missiles, beam fire and saber combos in a fast third-person mech arena.",
+  "controls": "WASD move; mouse aim; Shift dash/brake; Space jump; left click pulse; right hold/release missiles; E saber; Q lance; X reactor; H controls; Esc pause; M mute. Desktop keyboard and mouse required.",
+  "publicUrl": "https://tront.xyz/vectorrush/",
+  "recoveredRuntimeSha256": "daf71105fb31e12ab6157c4fb8b012cb13272eb8b148262427dc8f0bbb5c2658",
+  "releaseRevision": 1
+}
