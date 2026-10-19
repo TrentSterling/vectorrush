@@ -1178,12 +1178,13 @@ function buildMech(id){
  // Twin center-weapon rails stow behind the shoulders, mechanically opening to fire X.
  for(const side of [-1,1]){
   const base=group(chest,[side*(id===2?.91:.69),.52,-.52]);
+  const lift=box(base,[.10,1,.10],[0,0,0],shade);lift.userData.dynamic=true;lift.visible=false;
   const pod=group(base);hull(pod,[[-.19,id===2?.31:.18,.23],[.19,id===2?.31:.18,.23]],shade);
   const barrel=group(pod,[0,.05,.16]);
   hull(barrel,[[-.13,.14,.72],[.13,.14,.72]],main,[0,0,.53]);
   box(barrel,[.095,.027,1.12],[0,.145,.61],trim);box(barrel,[.24,.21,.065],[0,0,1.29],black);box(barrel,[.13,.085,.01],[0,0,1.33],glow);
   const door=group(pod,[side*.20,.22,-.06]);panel(door,[[-.2,-.35],[.2,-.35],[.15,.30],[-.15,.30]],.08,white);
-  cannons.push({base,pod,barrel,door,s:side});
+  cannons.push({base,pod,barrel,door,lift,s:side});
  }
  if(id===2){chest.scale.set(1.17,1.04,1.10);head.scale.setScalar(.94);for(const {arm,elbow} of arms){arm.scale.x=1.12;elbow.scale.x=1.15;}for(const {fin,s} of fins){fin.scale.set(.48,.52,.9);} }
  if(id===3){chest.scale.set(.96,.98,1);for(const {fin,s} of fins){fin.scale.set(1.35,1.22,1);fin.rotation.z=-s*.1;} }
@@ -1558,7 +1559,7 @@ function poseRig(r,m,alpha,dt){
  }
  r.shoulders.forEach((s,i)=>{s.rotation.z=spring(r,'shoulder'+i,-r.body.rotation.z*.30+(i?1:-1)*((dash?.055:0)+shoulderKick*.12),4.3,dt,.62);});
  r.fins.forEach(({fin,s})=>{fin.rotation.y=spring(r,'fin'+s,s*(dash?-.24:m.charge>0?.24:-.015),3.7,dt,.58);fin.rotation.x=spring(r,'finX'+s,-accF*.0012+bodyKick*.09,4,dt,.58);});
- r.cannons.forEach(({pod,barrel,door,s})=>{const open=(m.chargeKind==='reactor'&&(m.charge>0||r.weaponKind==='reactor'&&r.weaponAge<.65))||preparing&&r.threatKind==='reactor'?1:0;pod.rotation.x=spring(r,'pod'+s,open?-.04:.65,6,dt);barrel.position.z=spring(r,'barrel'+s,open?.29-armKick*.38:-.26,7,dt);door.rotation.z=spring(r,'door'+s,-s*open*1.10,5,dt);});
+ r.cannons.forEach(({pod,barrel,door,s})=>{const open=(m.chargeKind==='reactor'&&(m.charge>0||r.weaponKind==='reactor'&&r.weaponAge<.65))||preparing&&r.threatKind==='reactor'?1:0;pod.rotation.set(spring(r,'pod'+s,open?-.04:.65,6,dt),0,0,'YXZ');barrel.position.z=spring(r,'barrel'+s,open?.29-armKick*.38:-.26,7,dt);door.rotation.z=spring(r,'door'+s,-s*open*1.10,5,dt);});
  for(let i=0;i<r.detachables.length;i++){r.detachables[i].visible=!(m.detachMask&(1<<i));r.internals[i].group.visible=!!(m.detachMask&(1<<i));}
  r.root.updateMatrixWorld(true);
  if(r.gunPivot){
@@ -1600,7 +1601,35 @@ function poseRig(r,m,alpha,dt){
  r.arc.visible=false;
  r.shadow.position.set(r.root.position.x,m.support+.013,r.root.position.z);r.shadow.scale.setScalar(1+Math.max(0,r.root.position.y-m.support)*.07);r.shadow.material.opacity=.16/(1+Math.max(0,r.root.position.y-m.support)*.2);r.shadow.visible=!m.dead||m.death<.88;
  r.root.updateMatrixWorld(true);
+ aimCannons(r,m);
  fx.spectacle.pose(r,m,dt);
+}
+function aimCannons(r,m){
+ // Only the rendered rig tracks the simulation's already locked charge point.
+ // Keep the last point through recoil/retraction; a subsequent lance must not
+ // redirect the returning pods. The existing deployment spring remains the clock.
+ if(m.chargeKind==='reactor'&&m.charge>0&&m.chargeAim)(r.cannonAim ||=V()).copy(m.chargeAim);
+ let deployed=false;
+ for(const {base,pod,barrel,lift,s} of r.cannons){
+  const amount=clamp((.65-r.springs['pod'+s].x)/.69,0,1);
+  // Raise the carriage along the fixed mount before depressing the long barrel.
+  // The same deployment spring drives the lift; recoil and attack timing stay put.
+  pod.position.set(s*.3*amount,amount,0);
+  lift.visible=amount>.001;lift.position.copy(pod.position).multiplyScalar(.5);
+  lift.scale.y=Math.max(.001,pod.position.length());lift.rotation.z=-Math.atan2(pod.position.x,pod.position.y);
+  pod.updateMatrixWorld(true);
+  deployed ||=amount>.001;
+  if(!r.cannonAim||amount<=.001)continue;
+  const target=base.worldToLocal((r.cannonLocal ||=V()).copy(r.cannonAim)).sub(pod.position),distance=Math.max(.001,target.length());
+  // Fade close/behind targets continuously; never snap across a distance guard.
+  const forward=clamp((target.z-.5)/2,0,1),weight=amount*forward*forward*(3-2*forward);
+  const yaw=clamp(Math.atan2(target.x,target.z),s<0?-.65:-.10,s<0?.10:.65);
+  // The barrel axis sits 5cm above the pod pivot, including on scaled chassis.
+  const elevation=clamp(Math.asin(clamp(barrel.position.y/distance,-1,1))-Math.atan2(target.y,Math.hypot(target.x,target.z)),-.65,.65);
+  pod.rotation.set(pod.rotation.x+(elevation+.04)*weight,yaw*weight,0,'YXZ');
+  pod.updateMatrixWorld(true);
+ }
+ if(!deployed)r.cannonAim=null;
 }
 function updateCamera(dt,snap=false){
  const m=world.mechs[0],wreck=m.dead?fx.wrecks.find(w=>w.id===0&&w.round===world.round):null,p=wreck?V(wreck.p.x,Math.max(0,wreck.p.y-1.2),wreck.p.z):rigs[0].root.position;
